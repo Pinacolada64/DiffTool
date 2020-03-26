@@ -27,7 +27,8 @@
 '             0123456789abcdef0123456789abcdef0123456
 	gosub {:sector_frame}
 	sys{sym:reset_buffers}
-	sys{sym:incLinkDiffs}:sys{sym:incDiffCount}:sys{sym:incByteCount}
+'	sys{sym:incLinkDiffs}:sys{sym:incDiffCount}:sys{sym:incByteCount}
+	sys{sym:compare_buffers}
 	end
 
 ' links: max 664 blocks
@@ -70,14 +71,14 @@
 	text_ram	= $0400
 ; row_* = physical line # on screen within screen/color ram
 ; (add text_ram or color_ram to get final address)
-	row_orig	= (40*2)	;  2nd row
-	row_status_line	= (40*10)	; 10th row
-	row_diff	= (40*12)	; 12th row
+	row_orig	= (40*2)	;  2nd row (80)
+	row_status_line	= (40*10)	; 10th row (400)
+	row_diff	= (40*12)	; 12th row (480)
 
 ; since we're using screen ram as buffers, add that constant:
 	buf_orig	= text_ram + row_orig		; $0450, 1104
-	buf_status_line	= text_ram + row_status_line	; $04xx,
-	buf_diff	= text_ram + row_diff		; $04xx,
+	buf_status_line	= text_ram + row_status_line	; $0590, 1424
+	buf_diff	= text_ram + row_diff		; $05e0, 1504
 
 ; color memory
 	color_ram	= $d800
@@ -202,6 +203,7 @@ reset:
 	bne <@
 	rts
 
+get_sector:
 ; read sector, display it
 ; supply lfn# in .x
 ;	ldx #$03 	;#$03
@@ -258,7 +260,7 @@ c07f:
 	beq c08a 	;$c08a
 	lda status 	;$90
 	beq $c055 	;$c055
-	inc $c0fc 	;$c0fc
+	inc c0fc 	;$c0fc
 c08a:
 	sty c0f8
 	jsr clrchn 	;$ffcc
@@ -286,20 +288,22 @@ c08a:
 	ldx #$03 	;c0af  a2 03   	 #$03
 	jsr chkin 	;c0b1  20 c6 ff	 $ffc6
 	lda #$00 	;c0b4  a9 00   	 #$00
-	sta $c0f9 	;c0b6  8d f9 c0	 $c0f9
+	sta c0f9 	;c0b6  8d f9 c0	 $c0f9
 	sta byte_in 	;c0b9  8d fa c0	 $c0fa
-	sta $c0fb 	;c0bc  8d fb c0	 $c0fb
+	sta c0fb 	;c0bc  8d fb c0	 $c0fb
+c0bf:
 	jsr getin 	;c0bf  20 e4 ff	 $ffe4
-	inc $c0f9 	;c0c2  ee f9 c0	 $c0f9
-	bne $c0cf 	;c0c5  d0 08   	 $c0cf
+	inc c0f9 	;c0c2  ee f9 c0	 $c0f9
+	bne c0cf 	;c0c5  d0 08   	 $c0cf
 	inc byte_in 	;c0c7  ee fa c0	 $c0fa
-	bne $c0cf 	;c0ca  d0 03   	 $c0cf
-	inc $c0fb 	;c0cc  ee fb c0	 $c0fb
+	bne c0cf 	;c0ca  d0 03   	 $c0cf
+	inc c0fb 	;c0cc  ee fb c0	 $c0fb
+c0cf:
 	jsr incByteCount;c0cf  20 fd c0	 $c0fd
 	jsr stop
 ;	bne <blah>	; stop pressed
 	lda status 	;c0d2  a5 90   	 $90
-	beq $c0bf 	;c0d4  f0 e9   	 $c0bf
+	beq c0bf 	;c0d4  f0 e9   	 $c0bf
 ; disk error:
 	ldx #$0f
 	jsr chkin
@@ -308,11 +312,11 @@ c08a:
 	jsr clrchn 	;c0d6  20 cc ff	 $ffcc
 	ldx #$02 	;c0d9  a2 02   	 #$02
 	jsr chkout 	;c0db  20 c9 ff	 $ffc9
-	lda $c0f9 	;c0de  ad f9 c0	 $c0f9
+	lda c0f9 	;c0de  ad f9 c0	 $c0f9
 	jsr chrout 	;c0e1  20 d2 ff	 $ffd2
 	lda byte_in 	;c0e4  ad fa c0	 $c0fa
 	jsr chrout 	;c0e7  20 d2 ff	 $ffd2
-	lda $c0fb 	;c0ea  ad fb c0	 $c0fb
+	lda c0fb 	;c0ea  ad fb c0	 $c0fb
 	jsr chrout 	;c0ed  20 d2 ff	 $ffd2
 	jsr clrchn 	;c0f0  20 cc ff	 $ffcc
 	lda #$03 	;c0f3  a9 03   	 #$03
@@ -328,7 +332,7 @@ byte_in:
 c0fb:
 	brk             ;c0fb
 bad_byte:
-C0FC:
+c0fc:
 	brk		;c0fc
 
 incLinkDiffs:
@@ -429,8 +433,8 @@ print_at:
 	iny		; increment pointer
 	inc string	; increment base addr
 	lda (string),y	; get y coord
-	tay		; col=.y for plot routine
 
+;	tay		; col=.y for plot routine
 ;	clc		; set cursor position
 ;	jsr plot	; $e50a
 	ldy string	; get pointer back
@@ -457,24 +461,25 @@ colorHighlight:
 
 ; strings:
 sector_frame_top:
-	ascii "{$a0:40}{0}"
+	ascii "{$a0:40}{$00}"
 sector_frame_bottom:
 	ascii "{176}{$a0:40}{189}{$00}"
 
 msg_press_any_key:
 ; column, row
-	byte $0a,$00
-	ascii "Press any key to end{0}"
+	ascii "{$0a}{$00}Press any key to end{$00}"
 
 msg_status_line:
-	byte $01,$0a
-	ascii "Link: 000  Diff: 000000  Bytes: 000000{0}"
+	ascii "{$01}{$0a}Link: 000  Diff: 000000  Bytes: 000000{$00}"
 
-diff_count: word $0000
-link_diffs: word $0000
-byte_diffs: word $0000
+diff_count:
+	word $0000
+link_diffs:
+	word $0000
+byte_diffs:
+	word $0000
 diff_sectors:
-
+	byte $00
 
 ;           Press any key to end
 ; ----------------------------------------
