@@ -1,4 +1,3 @@
-{loadaddr:$0801}
 {ascii:alt}
 {number:10}
 	goto {:screen}
@@ -21,14 +20,13 @@
 '	cmp colorBackground
 '	beq chooseAgain		; avoids invisible text
 {:screen}
-	print"{switchdisable}{lowercase}{clear}":gosub{:sector_frame}
-	print" Link: 000  Diff: 000000  Bytes: 000000"
+	print"{switchdisable}{lowercase}{clear}":gosub{:sector_frame}:sys{sym:screen_setup}:print:gosub{:sector_frame}
+'	print" Link: 000  Diff: 000000  Bytes: 000000"
 '                      ^      1      ^        2     ^
 '             0123456789abcdef0123456789abcdef0123456
-	gosub {:sector_frame}
 	sys{sym:reset_buffers}
-'	sys{sym:incLinkDiffs}:sys{sym:incDiffCount}:sys{sym:incByteCount}
-	sys{sym:compare_buffers}
+	sys{sym:incLinkDiffs}:sys{sym:incDiffCount}:sys{sym:incByteCount}
+'	sys{sym:compare_buffers}
 	end
 
 ' links: max 664 blocks
@@ -46,6 +44,7 @@
 
 	string	= $f7	; temp pointer for string address, used by print_at
 	temp	= $f9	; temp pointer for quick zp loops
+	screen	= temp	; for print_at routine
 	buffer	= $f9	; does double duty as current buffer address
 	pbuf_orig= $fb	; pointer to original buffer
 	pbuf_diff= $fd	; pointer to difference buffer
@@ -111,6 +110,38 @@ init:
 ; iny			; iny		iny
 ; bne ...		; bne ...	bne ...
 ; hmm
+
+screen_setup:
+	lda #<msg_status_line
+	sta string
+	lda #>msg_status_line
+	sta string+1
+	jsr print_at
+
+	lda #<msg_info_row1
+	sta string
+	lda #>msg_info_row1
+	sta string+1
+	jsr print_at
+
+	lda #<msg_info_row2
+	sta string
+	lda #>msg_info_row2
+	sta string+1
+	jsr print_at
+
+	lda #<msg_info_row3
+	sta string
+	lda #>msg_info_row3
+	sta string+1
+	jsr print_at
+
+	lda #<msg_info_row4
+	sta string
+	lda #>msg_info_row4
+	sta string+1
+	jsr print_at
+	rts
 
 set_text_orig:
 ; point ($f9) to original buffer (text)
@@ -194,7 +225,8 @@ reset_buffers:
 ;	jsr reset
 
 reset:
-; clear ($f9) with .a
+; clear page ($f9) with .a
+	dec temp	; FIXME: ugly hack to fix off-by-one error when displaying buffers
 	ldy #$00	; counter
 @:
 	sta (temp),y	; fill buffer
@@ -418,34 +450,62 @@ inc_diff:
 print_at:
 ; gets x/y coords from 1st 2 bytes;
 ; string format is "<x> <y> <text> {0}"
-; lda (temp) to increment where to plot to screen_ram
-; get address
-	lda >msg_status_line
-	sta string
-	lda <msg_status_line
-	sta string+1
-	ldy #$00	; reset counter
-; get/set coordinates
-	lda (string),y	; get x coord
-	iny		; increment pointer
-	inc string	; increment base addr
-	tax		; row=.x for plot routine
-	iny		; increment pointer
-	inc string	; increment base addr
-	lda (string),y	; get y coord
+; <x y> is row/column to plot string in screen ram
+; lda (string),y to get byte from string
+; sta (screen),y   to plot to screen_ram
 
-;	tay		; col=.y for plot routine
-;	clc		; set cursor position
-;	jsr plot	; $e50a
-	ldy string	; get pointer back
+; reset (screen) since it's been modified by previous runs
+	lda #<text_ram
+	sta screen
+	lda #>text_ram
+	sta screen+1
+
+	ldy #$00	; reset string pointer
+; get/set coordinates, get past coordinate bytes
+; only using zp,y since lda ($xx) is invalid
+	lda (string),y	; 1st byte: x coordinate
+	inc string	; move past x coordinate in string
+
+; adjust (screen) address by (40*.a) per row
+	tay		; now .y = how many rows down
+@:
+	clc
+	lda screen
+	adc #40		; add each +40 to lsb of (screen)
+	sta screen
+	lda screen+1
+	adc #$00
+	sta screen+1
+
+	dey
+	bne <@
+
+; working multi-byte add:
+; 	clc
+; 	lda num1
+; 	adc num2
+; 	sta result_low
+; 	lda result_high
+; 	adc #$00
+; 	sta result_high
+; 	rts
+
+@put_y:
+	ldy #0
+	clc
+	lda screen	; lsb of screen_ram
+	adc (string),y	; 1st byte: y coord
+	sta screen	; add that to screen_ram
+	lda screen+1
+	adc #$00
+	sta screen+1
+	inc string	; 2 bytes into string, should point to string text
 @:
 	lda (string),y
-	beq >@		; 0-byte is end of string
-	inc string	; prep to print next char
-	sta (temp),y	; store on screen
+	beq >@		; 0-byte: end of string
+	sta (screen),y	; store on screen
 	iny		; inc pointer
 	jmp <@
-
 @:
 	rts
 
@@ -455,22 +515,45 @@ print_at:
 colorBackground:
 	byte $08
 colorDisplay:
-	byte $01
+	byte $01	; white
 colorHighlight:
-	byte $02
+	byte $02	; red
 
 ; strings:
+
 sector_frame_top:
 	ascii "{$a0:40}{$00}"
 sector_frame_bottom:
 	ascii "{176}{$a0:40}{189}{$00}"
 
-msg_press_any_key:
-; column, row
-	ascii "{$0a}{$00}Press any key to end{$00}"
+{alpha:pokealt}
+; for upper/lowercase strings in screen_ram
 
 msg_status_line:
-	ascii "{$01}{$0a}Link: 000  Diff: 000000  Bytes: 000000{$00}"
+; first two bytes: row, col
+	byte $0a,$01
+	ascii "Link: 000  Diff: 000000  Bytes: 000000{$00}"
+
+msg_info_row1:
+	byte $15,$02
+	ascii "Source  $th,$sh  $ws/$wfhex  $h1  {34}s{34}{$00}"
+
+msg_info_row2:
+	byte $16,$02
+	ascii "Target  $th,$sh              $h2{$00}"
+
+msg_info_row3:
+	byte $17,$02
+	ascii "Source  trk,sec              d01{$00}"
+
+msg_info_row4:
+	byte $18,$02
+	ascii "Target  trk,sec  wsd/ wfdec  d02  {34}s{34}{$00}"
+
+msg_press_any_key:
+; row, column:
+	byte $00,$0a
+	ascii "Press any key to end{$00}"
 
 diff_count:
 	word $0000
