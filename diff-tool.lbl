@@ -118,6 +118,12 @@ screen_setup:
 	sta string+1
 	jsr print_at
 
+	lda #<msg_info_row0
+	sta string
+	lda #>msg_info_row0
+	sta string+1
+	jsr print_at
+
 	lda #<msg_info_row1
 	sta string
 	lda #>msg_info_row1
@@ -534,6 +540,10 @@ msg_status_line:
 	byte $0a,$01
 	ascii "Link: 000  Diff: 000000  Bytes: 000000{$00}"
 
+msg_info_row0:
+	byte $14,$0b
+	ascii "Links    Offsets     Bytes{$00}"
+
 msg_info_row1:
 	byte $15,$02
 	ascii "Source  $th,$sh  $ws/$wfhex  $h1  {34}s{34}{$00}"
@@ -584,6 +594,7 @@ diff_sectors:
 ; ........................................
 ; ...............+------------------------
 ; ---------------+    filename
+;           Links    Offsets     Bytes
 ;  Source  $th,$sh  $ws/$wfhex  $h1  "s"
 ;  Target  $th,$sh              $h2        [offsets not duplicated here
 ;  Source  trk,sec              d01         since they will be the same]
